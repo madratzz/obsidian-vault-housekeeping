@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-vault-housekeeping",
+  "name": "Obsidian Vault Housekeeping",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Keeps created and updated frontmatter properties present on markdown notes.",
+  "author": "Vault Agent",
+  "authorUrl": "",
+  "isDesktopOnly": false
+}
