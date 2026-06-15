@@ -11,7 +11,6 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
 
     this.registerEvent(this.app.vault.on("create", (file) => this.queueTimestampRefresh(file)));
     this.registerEvent(this.app.vault.on("modify", (file) => this.queueTimestampRefresh(file)));
-    this.registerEvent(this.app.workspace.on("file-open", (file) => this.queueTimestampRefresh(file)));
   }
 
   onunload() {
