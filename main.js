@@ -17,21 +17,17 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
     this.recentWrites = new Map();
 
     await this.loadSettings();
-    this.registerEvent(this.app.vault.on("create", (file) => this.queueTimestampRefresh(file)));
-
-    // Listen to editor changes (real user edits), not file-system modify
-    // events. The latter fire for sync tools (OneDrive, Obsidian Sync,
-    // git auto-commit, etc.) on Obsidian open, which would bump updated:
-    // on every file at startup.
-    //
-    // IMPORTANT: editor-change fires when an editor is first loaded with
-    // content (i.e., every open tab on startup). We must ignore those
-    // initial-load events by waiting for layout-ready + a settle delay.
-    this.startedAt = Date.now();
+    // Freeze: ignore all events until layout is ready + 2s settle.
+    // This prevents initial-load editor changes and cache-rebuild creates
+    // from bumping updated: on every file at startup.
     this.layoutSettled = false;
     this.app.workspace.onLayoutReady(() => {
       window.setTimeout(() => { this.layoutSettled = true; }, 2000);
     });
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (!this.layoutSettled) return;
+      this.queueTimestampRefresh(file);
+    }));
     this.registerEvent(
       this.app.workspace.on("editor-change", (_editor, ctx) => {
         if (!this.layoutSettled) return;
