@@ -2,7 +2,7 @@
 
 ## 0.3.1
 
-- **Fix**: v0.3.0's switch to `editor-change` caused `updated:` to bump on every file that was open in an editor at Obsidian startup — because setting the editor's content programmatically (initial file load) fires the event. The new code now ignores all `editor-change` events until Obsidian's layout is fully loaded plus a 2-second settle delay. This ensures only real user edits (after startup) trigger bumps.
+- **Fix**: The v0.3.1 startup freeze now guards **both** `create` and `editor-change` listeners. v0.3.0's switch to `editor-change` caused `updated:` to bump on every file open in an editor at startup (initial content load fires the event). The initial v0.3.1 fix only guarded `editor-change`, but `vault.on('create')` also fires for every file when Obsidian's metadata cache is rebuilt. Now neither listener fires during the 2-second settle window after layout-ready. (Commit b338278)
 
 ## 0.3.0
 
