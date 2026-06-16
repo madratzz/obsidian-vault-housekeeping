@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
   ignorePaths: ["99 - Meta/Templates", "99 - Meta/Templates/"],
   backfillOnLoad: false,
   templateFolderHint: "99 - Meta/Templates",
+  bumpOnExternalChanges: false,
 };
 
 module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
@@ -17,7 +18,22 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
 
     await this.loadSettings();
     this.registerEvent(this.app.vault.on("create", (file) => this.queueTimestampRefresh(file)));
-    this.registerEvent(this.app.vault.on("modify", (file) => this.queueTimestampRefresh(file)));
+    // Listen to editor changes (real user edits), not file-system modify
+    // events. The latter fire for sync tools (OneDrive, Obsidian Sync,
+    // git auto-commit, etc.) on Obsidian open, which would bump updated:
+    // on every file at startup. editor-change fires only when the user
+    // (or an editor-driven plugin like Templater) actually changes the
+    // file's text.
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (_editor, ctx) => {
+        const file = ctx && ctx.file;
+        if (file) this.queueTimestampRefresh(file);
+      })
+    );
+    if (this.settings.bumpOnExternalChanges) {
+      // Opt-in: also bump on raw file-system modify events.
+      this.registerEvent(this.app.vault.on("modify", (file) => this.queueTimestampRefresh(file)));
+    }
 
     this.addSettingTab(new HousekeepingSettingTab(this.app, this));
 
@@ -48,6 +64,7 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
     stored.ignorePaths = this.settings.ignorePaths;
     stored.backfillOnLoad = this.settings.backfillOnLoad;
     stored.templateFolderHint = this.settings.templateFolderHint;
+    stored.bumpOnExternalChanges = this.settings.bumpOnExternalChanges;
     await this.saveData(stored);
   }
 
@@ -93,11 +110,19 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
 
     this.processing.add(file.path);
     try {
-      const original = await this.app.vault.cachedRead(file);
-      const updated = upsertTimestampFrontmatter(original, todayIso());
-      if (updated !== original) {
+      let didChange = false;
+      // Use vault.process so the editor (if open) stays in sync with the
+      // updated frontmatter. The callback is atomic: read, transform, write.
+      await this.app.vault.process(file, (content) => {
+        const updated = upsertTimestampFrontmatter(content, todayIso());
+        if (updated !== content) {
+          didChange = true;
+          return updated;
+        }
+        return content;
+      });
+      if (didChange) {
         this.markRecentlyWritten(file.path);
-        await this.app.vault.modify(file, updated);
       }
     } finally {
       this.processing.delete(file.path);
@@ -238,6 +263,18 @@ class HousekeepingSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.backfillOnLoad)
           .onChange(async (value) => {
             this.plugin.settings.backfillOnLoad = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Bump on external file changes")
+      .setDesc("OFF (recommended): only bump `updated:` when you actually edit a note. ON: also bump when sync tools (OneDrive, Obsidian Sync, git auto-commit) write to files — useful if you want every disk-side change to count as an edit. Requires plugin reload to take effect.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.bumpOnExternalChanges)
+          .onChange(async (value) => {
+            this.plugin.settings.bumpOnExternalChanges = value;
             await this.plugin.saveSettings();
           })
       );

@@ -17,6 +17,7 @@ Open Settings → Community Plugins → Obsidian Vault Housekeeping.
 
 - **Ignore paths** — one regex or substring per line. Files matching any pattern are skipped. Defaults to `99 - Meta/Templates`.
 - **Backfill on load** — when enabled, walks the vault once per version upgrade and adds `created`/`updated` to markdown files missing them (skips ignored paths).
+- **Bump on external file changes** — OFF (recommended): only bump `updated:` when you actually edit a note. ON: also bump when sync tools (OneDrive, Obsidian Sync, git auto-commit) write to files. Requires plugin reload.
 - **Run backfill now** — manual button to trigger a backfill on demand.
 
 ## BRAT Publishing
