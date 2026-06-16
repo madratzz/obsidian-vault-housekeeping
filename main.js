@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   backfillOnLoad: false,
   templateFolderHint: "99 - Meta/Templates",
   bumpOnExternalChanges: false,
+  onlyOnSave: false,
 };
 
 module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
@@ -15,6 +16,12 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
     this.pendingTimers = new Map();
     this.processing = new Set();
     this.recentWrites = new Map();
+    // Track files "seen" this session so editor-change from initial
+    // file load (opening a note) doesn't bump updated:. Only real
+    // user edits should trigger a timestamp refresh.
+    this.seenFiles = new Set();
+    // Track files with unsaved edits when onlyOnSave is enabled.
+    this.dirtyFiles = new Set();
 
     await this.loadSettings();
     // Freeze: ignore all events until layout is ready + 2s settle.
@@ -32,13 +39,47 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
       this.app.workspace.on("editor-change", (_editor, ctx) => {
         if (!this.layoutSettled) return;
         const file = ctx && ctx.file;
-        if (file) this.queueTimestampRefresh(file);
+        if (!file) return;
+
+        if (this.settings.onlyOnSave) {
+          // Don't bump on edit — just mark the file as dirty so the
+          // save handler can bump it when the user presses CTRL+S.
+          this.dirtyFiles.add(file.path);
+          return;
+        }
+
+        // Normal mode: skip the first editor-change per file (initial load).
+        // Only subsequent changes (actual user edits) bump updated:.
+        if (this.seenFiles.has(file.path)) {
+          this.queueTimestampRefresh(file);
+        } else {
+          this.seenFiles.add(file.path);
+        }
       })
     );
     if (this.settings.bumpOnExternalChanges) {
       // Opt-in: also bump on raw file-system modify events.
       this.registerEvent(this.app.vault.on("modify", (file) => this.queueTimestampRefresh(file)));
     }
+    if (this.settings.onlyOnSave) {
+      // When onlyOnSave is enabled, bump dirty files when they are saved
+      // to disk (e.g. CTRL+S). The user must have Obsidian auto-save set
+      // to "Manual" for this to behave strictly on save.
+      this.registerSaveBumpHandler();
+    }
+
+    // Register a command the user can bind to any hotkey in Settings → Hotkeys.
+    this.addCommand({
+      id: "bump-timestamp",
+      name: "Update frontmatter timestamps on current file",
+      editorCallback: (_editor, ctx) => {
+        const file = ctx && ctx.file;
+        if (file) {
+          this.dirtyFiles.delete(file.path);
+          this.queueTimestampRefresh(file);
+        }
+      },
+    });
 
     this.addSettingTab(new HousekeepingSettingTab(this.app, this));
 
@@ -48,6 +89,17 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
       window.setTimeout(() => this.runBackfill().catch(() => {}), 1500);
     }
     this.persistInstalledVersion();
+  }
+
+  registerSaveBumpHandler() {
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (this.dirtyFiles.has(file.path)) {
+          this.dirtyFiles.delete(file.path);
+          this.queueTimestampRefresh(file);
+        }
+      })
+    );
   }
 
   async loadSettings() {
@@ -70,6 +122,7 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
     stored.backfillOnLoad = this.settings.backfillOnLoad;
     stored.templateFolderHint = this.settings.templateFolderHint;
     stored.bumpOnExternalChanges = this.settings.bumpOnExternalChanges;
+    stored.onlyOnSave = this.settings.onlyOnSave;
     await this.saveData(stored);
   }
 
@@ -93,6 +146,8 @@ module.exports = class ObsidianVaultHousekeepingPlugin extends Plugin {
     this.pendingTimers.clear();
     this.processing.clear();
     this.recentWrites.clear();
+    this.seenFiles.clear();
+    this.dirtyFiles.clear();
   }
 
   queueTimestampRefresh(file) {
@@ -274,13 +329,39 @@ class HousekeepingSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Bump on external file changes")
-      .setDesc("OFF (recommended): only bump `updated:` when you actually edit a note. ON: also bump when sync tools (OneDrive, Obsidian Sync, git auto-commit) write to files — useful if you want every disk-side change to count as an edit. Requires plugin reload to take effect.")
+      .setDesc("OFF (recommended): only bump `updated:` when you actually edit a note. ON: also bump when sync tools (OneDrive, Obsidian Sync, git auto-commit) write to files. Requires plugin reload to take effect.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.bumpOnExternalChanges)
           .onChange(async (value) => {
             this.plugin.settings.bumpOnExternalChanges = value;
             await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Only bump on save")
+      .setDesc("When enabled, `updated:` is only bumped when a file is saved to disk (CTRL+S). Editing text alone won't update the timestamp. Requires plugin reload to take effect. For strict save-only behavior, also set Obsidian → Settings → Editor → Auto save to 'Manual'.")
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.onlyOnSave)
+          .onChange(async (value) => {
+            this.plugin.settings.onlyOnSave = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Bump timestamp command")
+      .setDesc("A command \"Update frontmatter timestamps on current file\" is registered. Go to Settings → Hotkeys to bind it to any key (e.g. CTRL+S) for manual bumping.")
+      .addButton((button) =>
+        button
+          .setButtonText("Open Hotkeys")
+          .onClick(() => {
+            // @ts-ignore
+            this.app.setting.open();
+            // @ts-ignore
+            this.app.setting.openTabById("hotkeys");
           })
       );
 

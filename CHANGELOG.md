@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- **Fix**: Opening a file (either at startup or by clicking in the file explorer) no longer bumps `updated:`. The initial `editor-change` event on file load is now skipped — only subsequent user edits trigger a refresh.
+- **New**: "Only bump on save" setting. When enabled, `updated:` is only refreshed when the file is saved to disk (CTRL+S / CMD+S). Editing text alone won't bump the timestamp.
+- **New**: "Update frontmatter timestamps on current file" command is registered so you can bind it to any hotkey in Settings → Hotkeys (e.g., override CTRL+S for manual-only bumping).
+- **New**: "Open Hotkeys" button in settings for quick access.
+
 ## 0.3.1
 
 - **Fix**: The v0.3.1 startup freeze now guards **both** `create` and `editor-change` listeners. v0.3.0's switch to `editor-change` caused `updated:` to bump on every file open in an editor at startup (initial content load fires the event). The initial v0.3.1 fix only guarded `editor-change`, but `vault.on('create')` also fires for every file when Obsidian's metadata cache is rebuilt. Now neither listener fires during the 2-second settle window after layout-ready. (Commit b338278)
