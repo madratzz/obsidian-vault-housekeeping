@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- **Fix**: v0.3.0's switch to `editor-change` caused `updated:` to bump on every file that was open in an editor at Obsidian startup — because setting the editor's content programmatically (initial file load) fires the event. The new code now ignores all `editor-change` events until Obsidian's layout is fully loaded plus a 2-second settle delay. This ensures only real user edits (after startup) trigger bumps.
+
 ## 0.3.0
 
 - **Fix**: Stop bumping `updated:` on file-system `modify` events. The v0.2.0 plugin still listened to `vault.on("modify", ...)`, which fires whenever *any* process writes to a file — including sync tools like OneDrive, Obsidian Sync, and `obsidian-git` auto-commit. On Windows especially, this caused `updated:` to be bumped on every file at Obsidian startup.
